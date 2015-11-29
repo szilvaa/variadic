@@ -13,69 +13,6 @@ using AIO.ACES.Models;
 
 namespace Client
 {
-    class Test
-    {
-        public static async Task<HttpDownloadResult> HttpDownloadFileAsync(string url, System.Collections.Specialized.NameValueCollection headers, string localFolder, string fallbackFilename)
-        {
-            HttpClient client = new HttpClient();
-            
-
-            if (headers != null)
-            {
-                for (int i = 0; i < headers.Count; i++)
-                    client.DefaultRequestHeaders.TryAddWithoutValidation(headers.GetKey(i), headers[i]);
-            }
-
-            HttpDownloadResult result = new HttpDownloadResult();
-            const int retryOnStreamFailure = 2;
-            int count = 0;
-            while (count++ < retryOnStreamFailure)
-            {
-                HttpResponseMessage respmsg = client.GetAsync(url).Result;
-                respmsg.EnsureSuccessStatusCode();    // will throw if not successful
-
-                try
-                {
-                    using (var content = respmsg.Content)
-                    {
-                        // try to get the file name from the content header
-                        string filenameInHeader = String.Empty;
-                        System.Net.Http.Headers.ContentDispositionHeaderValue cdhv = content.Headers.ContentDisposition;
-                        if (cdhv != null && !string.IsNullOrEmpty(cdhv.FileName))
-                        {
-                            filenameInHeader = Uri.UnescapeDataString(cdhv.FileName);
-                            filenameInHeader = filenameInHeader.TrimStart('\"');
-                            filenameInHeader = filenameInHeader.TrimEnd('\"');
-                        }
-
-                        string filePath;
-                        filePath = Path.Combine(localFolder, fallbackFilename);
-                        using (var stream = File.OpenWrite(filePath))
-                        {
-                            try
-                            {
-                                await content.CopyToAsync(stream);
-                            }
-                            catch (Exception)
-                            {
-                                //log.Report.WriteLine(TraceEventType.Error, "Cannot write the downloaded content to local file {0}. Retry one more time", filePath);
-                                continue;
-                            }
-                        }
-
-                        long length = new FileInfo(filePath).Length;
-                    }
-                }
-                catch (Exception)
-                {
-                    if (count > 1)
-                        throw;
-                    // else - retry
-                }
-            }
-            return result;
-        }
-    }
     class Credentials
     {
         //get your ConsumerKey/ConsumerSecret at http://developer.autodesk.com
@@ -90,7 +27,6 @@ namespace Client
         static Container container;
         static void Main(string[] args)
         {
-            //Test.HttpDownloadFileAsync("http://services.odata.org/V4/Northwind/Northwind.svc/Products(2)", new System.Collections.Specialized.NameValueCollection(), "c:\\git", "response.txt").RunSynchronously();
             //instruct client side library to insert token as Authorization value into each request
             container = new Container(new Uri("https://developer.api.autodesk.com/autocad.io/us-east/v2/"));
             var token = GetToken();
@@ -98,45 +34,76 @@ namespace Client
 
             //check if our app package exists
             AppPackage package = null;
-            try { package = container.AppPackages.ByKey(PackageName).GetValue(); } catch {}
-            string res = null;
+            try { package = container.AppPackages.ByKey(PackageName).GetValue(); } catch { }
+            string res = "New";
             if (package!=null)
-                res = Prompts.PromptForKeyword(string.Format("AppPackage '{0}' already exists. What do you want to do? [Recreate/Update/Leave]<Update>", PackageName));
-            if (res == "Recreate")
             {
-                container.DeleteObject(package);
-                container.SaveChanges();
-                package = null;
-            }       
-            if (res!="Leave")
-                package = CreateOrUpdatePackage(CreateZip(), package);
+                // We have multiple versions of the is package already, retrieve all versions and show the current
+                Console.WriteLine("AppPackage '{0}' already exists. The following versions are available:", PackageName);
+                int min = int.MaxValue;
+                int max = int.MinValue;
 
-            //check if our activity already exist
+                var cont = new Container(new Uri("https://developer.api.autodesk.com/autocad.io/us-east/v2/"));
+                cont.SendingRequest2 += (sender, e) => e.RequestMessage.SetHeader("Authorization", token);
+
+                foreach (var app in cont.AppPackages.ByKey(PackageName).GetVersions())
+                {
+                    if (app.Version > max)
+                        max = app.Version;
+                    if (app.Version < min)
+                        min = app.Version;
+                    Console.WriteLine("Version #: {0}.Time Submitted: {1}.", app.Version, app.Timestamp);
+                }
+                Console.WriteLine("Current={0}", package.Version);
+                res = Prompts.PromptForKeyword(string.Format("What do you want to do? [New/SetCurrent/Leave]<New>", PackageName));
+                if (res=="SetCurrent")
+                {
+                    var ver = Prompts.PromptForNumber("Choose a version", min, max);
+                    container.AppPackages.ByKey(PackageName).SetVersion(ver).Execute();
+                }
+            }
+            if (res=="New")
+                package = CreateOrUpdatePackage(CreateZip(), package);
+            
+            //check if our activity already exists
             Activity activity = null;
             try { activity = container.Activities.ByKey(ActivityName).GetValue(); }
             catch { }
+            res = "New";
             if (activity != null)
             {
-                if (Prompts.PromptForKeyword(string.Format("Activity '{0}' already exists. Do you want to recreate it? [Yes/No]<No>", ActivityName)) == "Yes")
+                Console.WriteLine("Activity '{0}' already exists. The following versions are available:", ActivityName);
+                int min = int.MaxValue;
+                int max = int.MinValue;
+
+                var cont = new Container(new Uri("https://developer.api.autodesk.com/autocad.io/us-east/v2/"));
+                cont.SendingRequest2 += (sender, e) => e.RequestMessage.SetHeader("Authorization", token);
+
+                foreach (var act in cont.Activities.ByKey(ActivityName).GetVersions())
                 {
-                    container.DeleteObject(activity);
-                    container.SaveChanges();
-                    activity  = null;
+                    if (act.Version > max)
+                        max = act.Version;
+                    if (act.Version < min)
+                        min = act.Version;
+                    Console.WriteLine("Version #: {0}.Time Submitted: {1}. Script={2}.", act.Version, act.Timestamp, act.Instruction.Script.Replace("\n","<enter>"));
+                }
+                Console.WriteLine("Current={0}", activity.Version);
+                res = Prompts.PromptForKeyword(string.Format("What do you want to do? [New/SetCurrent/Leave]<New>", PackageName));
+                if (res == "SetCurrent")
+                {
+                    var ver = Prompts.PromptForNumber("Choose a version", min, max);
+                    container.Activities.ByKey(PackageName).SetVersion(ver).Execute();
                 }
             }
-            if (activity == null)
-                activity = CreateActivity(package);
+            if (res == "New")
+                activity = CreateOrUpdateActivity(activity, PackageName);
 
             //save outstanding changes if any
             container.SaveChanges();
 
             //finally submit workitem against our activity
             SubmitWorkItem(activity);
-
-            // demo new features in V2 -- version control
-            //DemoVersionControl();
         }
-
         static string GetToken()
         {
             Console.WriteLine("Getting authorization token...");
@@ -211,30 +178,36 @@ namespace Client
         }
 
 
-        //creates an activity with 2 inputs and variable number of outputs. All outsputs are places
-        //in a folder 'outputs'
-        static Activity CreateActivity(AppPackage package)
+        static Activity CreateOrUpdateActivity(Activity activity, string packageName)
         {
             Console.WriteLine("Creating/Updating Activity...");
-            var activity = new Activity()
+            bool newlyCreated = false;
+            if (activity == null)
             {
-                Id = ActivityName,
-                Instruction = new Instruction()
-                {
-                    Script = "_test\n"
-                },
-                Parameters = new Parameters()
-                {
-                    InputParameters = {
+                activity = new Activity() { Id = ActivityName };
+                newlyCreated = true;
+            }
+
+            activity.Instruction = new Instruction()
+            {
+                Script = "_test\n"
+            };
+            activity.Parameters = new Parameters()
+            {
+                InputParameters = {
                         new Parameter() { Name = "HostDwg", LocalFileName = "$(HostDwg)" },
                         new Parameter() { Name = "ProductDb", LocalFileName="dummy.txt"}
                     },
-                    OutputParameters = { new Parameter() { Name = "Result", LocalFileName = "result.pdf" } }
-                },
-                RequiredEngineVersion = "20.1"
+                OutputParameters = { new Parameter() { Name = "Result", LocalFileName = "result.pdf" } }
             };
-            activity.AppPackages.Add(PackageName); // reference the custom AppPackage
-            container.AddToActivities(activity);
+            activity.RequiredEngineVersion = "20.1";
+            if (newlyCreated)
+            {
+                activity.AppPackages.Add(packageName); // reference the custom AppPackage
+                container.AddToActivities(activity);
+            }
+            else
+                container.UpdateObject(activity);
             container.SaveChanges();
             return activity;
         }
@@ -312,29 +285,5 @@ namespace Client
             }
         }
 
-        static void DemoVersionControl()
-        {
-            // We have version control over submitted AppPackages/Activities. 
-            // You can set current version by calling container.AppPackages.ByKey(PackageName).SetVersion(number).Execute();
-            Console.WriteLine("We have version control over submitted AppPackages/Activities. Here is the version history of AppPackage with name \"{0}\":", PackageName);
-            var appPackages = container.AppPackages.ByKey(PackageName).GetVersions().Execute();
-
-            // send them to console 
-            var verList = new List<int>();
-            foreach (var app in appPackages)
-            {
-                verList.Add(app.Version);
-                Console.WriteLine("Version #: {0}.  Time Submitted: {1}.", app.Version, app.Timestamp);
-            }
-
-            // set the current version to the earlest version
-            verList.Sort();
-            int firstVersion = verList.First();
-            container.AppPackages.ByKey(PackageName).SetVersion(firstVersion).Execute();
-
-            // check the current version is the first version
-            var curAppPackage = container.AppPackages.ByKey(PackageName).GetValue();
-            System.Diagnostics.Debug.Assert(firstVersion == curAppPackage.Version);
-        }
     }
 }
