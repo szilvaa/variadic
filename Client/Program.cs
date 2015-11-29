@@ -55,7 +55,7 @@ namespace Client
                     Console.WriteLine("Version #: {0}.Time Submitted: {1}.", app.Version, app.Timestamp);
                 }
                 Console.WriteLine("Current={0}", package.Version);
-                res = Prompts.PromptForKeyword(string.Format("What do you want to do? [New/SetCurrent/Leave]<New>", PackageName));
+                res = Prompts.PromptForKeyword("What do you want to do? [New/SetCurrent/Leave]<New>");
                 if (res=="SetCurrent")
                 {
                     var ver = Prompts.PromptForNumber("Choose a version", min, max);
@@ -88,11 +88,11 @@ namespace Client
                     Console.WriteLine("Version #: {0}.Time Submitted: {1}. Script={2}.", act.Version, act.Timestamp, act.Instruction.Script.Replace("\n","<enter>"));
                 }
                 Console.WriteLine("Current={0}", activity.Version);
-                res = Prompts.PromptForKeyword(string.Format("What do you want to do? [New/SetCurrent/Leave]<New>", PackageName));
+                res = Prompts.PromptForKeyword("What do you want to do? [New/SetCurrent/Leave]<New>");
                 if (res == "SetCurrent")
                 {
                     var ver = Prompts.PromptForNumber("Choose a version", min, max);
-                    container.Activities.ByKey(PackageName).SetVersion(ver).Execute();
+                    container.Activities.ByKey(ActivityName).SetVersion(ver).Execute();
                 }
             }
             if (res == "New")
