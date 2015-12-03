@@ -36,14 +36,6 @@ namespace CrxApp
             }
             return "Failed";
         }
-        static void list(Autodesk.AutoCAD.EditorInput.Editor ed, string folder)
-        {
-            var en = Directory.EnumerateFileSystemEntries(folder);
-            foreach (var f in en)
-            {
-                ed.WriteMessage(string.Format("{0}\n",f));
-            }
-        }
     }
     
     public class Commands

@@ -4,8 +4,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
-using System.Text;
-using System.Threading.Tasks;
 using System.IO.Compression;
 
 using AIO.Operations;
@@ -16,8 +14,8 @@ namespace Client
     class Credentials
     {
         //get your ConsumerKey/ConsumerSecret at http://developer.autodesk.com
-        public static string ConsumerKey = "P2O7u6AuSFvRhCCRNBGx0aAvMrjc1s61";
-        public static string ConsumerSecret = "pO0jR9isyazVM4Od";
+        public static string ConsumerKey = "";
+        public static string ConsumerSecret = "";
     }
     class Program
     {
@@ -34,66 +32,27 @@ namespace Client
 
             //check if our app package exists
             AppPackage package = null;
-            try { package = container.AppPackages.ByKey(PackageName).GetValue(); } catch { }
+            var packageQ = container.AppPackages.ByKey(PackageName);
+            try { package = packageQ.GetValue(); } catch { }
             string res = "New";
             if (package!=null)
             {
-                // We have multiple versions of the is package already, retrieve all versions and show the current
-                Console.WriteLine("AppPackage '{0}' already exists. The following versions are available:", PackageName);
-                int min = int.MaxValue;
-                int max = int.MinValue;
-
-                var cont = new Container(new Uri("https://developer.api.autodesk.com/autocad.io/us-east/v2/"));
-                cont.SendingRequest2 += (sender, e) => e.RequestMessage.SetHeader("Authorization", token);
-
-                foreach (var app in cont.AppPackages.ByKey(PackageName).GetVersions())
-                {
-                    if (app.Version > max)
-                        max = app.Version;
-                    if (app.Version < min)
-                        min = app.Version;
-                    Console.WriteLine("Version #: {0}.Time Submitted: {1}.", app.Version, app.Timestamp);
-                }
-                Console.WriteLine("Current={0}", package.Version);
-                res = Prompts.PromptForKeyword("What do you want to do? [New/SetCurrent/Leave]<New>");
-                if (res=="SetCurrent")
-                {
-                    var ver = Prompts.PromptForNumber("Choose a version", min, max);
-                    container.AppPackages.ByKey(PackageName).SetVersion(ver).Execute();
-                }
+                res = PromptVersions(package.Version, packageQ.GetVersions().RequestUri, 
+                    packageQ.SetVersion(0).RequestUri, token);
             }
             if (res=="New")
                 package = CreateOrUpdatePackage(CreateZip(), package);
             
             //check if our activity already exists
             Activity activity = null;
-            try { activity = container.Activities.ByKey(ActivityName).GetValue(); }
+            var activityQ = container.Activities.ByKey(ActivityName);
+            try { activity = activityQ.GetValue(); }
             catch { }
             res = "New";
             if (activity != null)
             {
-                Console.WriteLine("Activity '{0}' already exists. The following versions are available:", ActivityName);
-                int min = int.MaxValue;
-                int max = int.MinValue;
-
-                var cont = new Container(new Uri("https://developer.api.autodesk.com/autocad.io/us-east/v2/"));
-                cont.SendingRequest2 += (sender, e) => e.RequestMessage.SetHeader("Authorization", token);
-
-                foreach (var act in cont.Activities.ByKey(ActivityName).GetVersions())
-                {
-                    if (act.Version > max)
-                        max = act.Version;
-                    if (act.Version < min)
-                        min = act.Version;
-                    Console.WriteLine("Version #: {0}.Time Submitted: {1}. Script={2}.", act.Version, act.Timestamp, act.Instruction.Script.Replace("\n","<enter>"));
-                }
-                Console.WriteLine("Current={0}", activity.Version);
-                res = Prompts.PromptForKeyword("What do you want to do? [New/SetCurrent/Leave]<New>");
-                if (res == "SetCurrent")
-                {
-                    var ver = Prompts.PromptForNumber("Choose a version", min, max);
-                    container.Activities.ByKey(ActivityName).SetVersion(ver).Execute();
-                }
+                res = PromptVersions(package.Version, activityQ.GetVersions().RequestUri, 
+                    activityQ.SetVersion(0).RequestUri, token);
             }
             if (res == "New")
                 activity = CreateOrUpdateActivity(activity, PackageName);
@@ -119,6 +78,34 @@ namespace Client
                 var resValues = JsonConvert.DeserializeObject<Dictionary<string, string>>(responseContent);
                 return resValues["token_type"] + " " + resValues["access_token"];
             }
+        }
+
+        static string PromptVersions(int curVer, Uri getVersions, Uri setVersion, string token)
+        {
+            // We have multiple versions of the is package already, retrieve all versions and show the current
+            Console.WriteLine("'{0}' already exists. The following versions are available:", PackageName);
+            int min = int.MaxValue;
+            int max = int.MinValue;
+
+            var cont = new Container(new Uri("https://developer.api.autodesk.com/autocad.io/us-east/v2/"));
+            cont.SendingRequest2 += (sender, e) => e.RequestMessage.SetHeader("Authorization", token);
+
+            foreach (dynamic item in cont.Execute<dynamic>(getVersions))
+            {
+                if (item.Version > max)
+                    max = item.Version;
+                if (item.Version < min)
+                    min = item.Version;
+                Console.WriteLine("Version #: {0}.Time Submitted: {1}.", item.Version, item.Timestamp);
+            }
+            Console.WriteLine("Current={0}", curVer);
+            var res = Prompts.PromptForKeyword("What do you want to do? [New/SetCurrent/Leave]<New>");
+            if (res == "SetCurrent")
+            {
+                var ver = Prompts.PromptForNumber("Choose a version", min, max);
+                container.Execute(setVersion, "POST", new Microsoft.OData.Client.BodyOperationParameter("Version", ver));
+            }
+            return res;
         }
         static string CreateZip()
         {
